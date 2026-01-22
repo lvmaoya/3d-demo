@@ -15,32 +15,49 @@
     }
     #toolbar {
       position: fixed;
-      top: 12px;
-      left: 12px;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
       display: flex;
-      gap: 8px;
+      gap: 10px;
+      align-items: center;
       z-index: 10;
-      background: rgba(20,20,20,0.6);
-      backdrop-filter: blur(6px);
-      border-radius: 10px;
-      padding: 8px;
-      border: 1px solid rgba(255,255,255,0.12);
+      background: transparent;
+      padding: 0;
+      border: none;
     }
     #toolbar button {
-      color: #fff;
-      background: #2b2b2b;
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 8px;
-      padding: 8px 12px;
+      color: #1f2937;
+      background: linear-gradient(180deg, #ffffff, #f7f7f7);
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 12px;
+      padding: 10px 16px;
       cursor: pointer;
+      outline: none;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15), inset 0 1px rgba(255,255,255,0.70);
+      transition: background .15s ease, transform .1s ease, box-shadow .15s ease, border-color .15s ease;
     }
     #toolbar button:hover {
-      background: #3a3a3a;
+      background: linear-gradient(180deg, #f9fafb, #f0f0f0);
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.20), inset 0 1px rgba(255,255,255,0.80);
+    }
+    #toolbar button:active {
+      transform: translateY(0);
+      background: linear-gradient(180deg, #efefef, #e7e7e7);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px rgba(255,255,255,0.70);
+    }
+    #toolbar button:focus-visible {
+      box-shadow: 0 0 0 2px rgba(2,132,199,0.35), 0 8px 22px rgba(0,0,0,0.20);
+    }
+    #toolbar button[data-active="true"] {
+      color: #0b6baf;
+      background: linear-gradient(180deg, #e0f2fe, #bae6fd);
+      border-color: rgba(2,132,199,0.45);
+      box-shadow: 0 8px 24px rgba(2,132,199,0.25), inset 0 1px rgba(255,255,255,0.85);
     }
     #toolbar .label {
-      color: #ddd;
-      padding: 8px 6px;
-      user-select: none;
+      display: none;
     }
     canvas {
       display: block;
@@ -51,15 +68,13 @@
 </head>
 <body>
   <div id="toolbar">
-    <div class="label">全景切换:</div>
-    <button id="btn1">全景 1</button>
-    <button id="btn2">全景 2</button>
-    <button id="fs">全屏</button>
-    <button id="auto">自动旋转</button>
+    <button id="btn1" data-group="pano" data-active="false">全景 1</button>
+    <button id="btn2" data-group="pano" data-active="false">全景 2</button>
+    <button id="fs" data-toggle>全屏</button>
+    <button id="auto" data-toggle>自动旋转</button>
     <button id="zoomIn">放大</button>
     <button id="zoomOut">缩小</button>
   </div>
-  <div id="overlay" style="position:fixed;top:12px;right:12px;z-index:10;background:rgba(20,20,20,0.6);backdrop-filter:blur(6px);border-radius:10px;padding:8px 12px;border:1px solid rgba(255,255,255,0.12);color:#ddd;">拖拽旋转，滚轮缩放</div>
   <div id="loading" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,0.5);padding:12px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);">图片加载中…</div>
   <canvas id="c"></canvas>
   <script type="module">
@@ -76,11 +91,12 @@
     camera.position.set(0, 0, 0.1);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = true;
+    controls.enableZoom = false;
     controls.enablePan = false;
     controls.rotateSpeed = 0.3;
     controls.zoomSpeed = 0.5;
     controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
 
     const geometry = new THREE.SphereGeometry(1, 64, 64);
     const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
@@ -110,6 +126,11 @@
       material.needsUpdate = true;
       document.getElementById('loading').style.display = 'none';
     }
+    function setActiveBtn(id) {
+      document.querySelectorAll('#toolbar button[data-group="pano"]').forEach(b => b.setAttribute('data-active', 'false'));
+      const btn = document.getElementById(id);
+      if (btn) btn.setAttribute('data-active', 'true');
+    }
 
     t1 = loader.load(textures.pano1, () => { setupTexture(t1); applyTexture(t1); renderOnce(); }, () => {}, () => {});
     t2 = loader.load(textures.pano2, () => { setupTexture(t2); }, () => {}, () => {});
@@ -117,6 +138,14 @@
     function renderOnce() {
       renderer.render(scene, camera);
     }
+
+    let fovTarget = camera.fov;
+    const fovMin = 30, fovMax = 100, fovEase = 0.15;
+    renderer.domElement.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = -e.deltaY;
+      fovTarget = THREE.MathUtils.clamp(fovTarget + delta * 0.05, fovMin, fovMax);
+    }, { passive: false });
 
     function resize() {
       const w = window.innerWidth;
@@ -132,15 +161,22 @@
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
+      if (Math.abs(fovTarget - camera.fov) > 0.01) {
+        camera.fov += (fovTarget - camera.fov) * fovEase;
+        camera.fov = THREE.MathUtils.clamp(camera.fov, fovMin, fovMax);
+        camera.updateProjectionMatrix();
+      }
       renderer.render(scene, camera);
     }
     animate();
 
     document.getElementById('btn1').addEventListener('click', () => {
       if (t1) applyTexture(t1);
+      setActiveBtn('btn1');
     });
     document.getElementById('btn2').addEventListener('click', () => {
       if (t2) applyTexture(t2);
+      setActiveBtn('btn2');
     });
     document.getElementById('fs').addEventListener('click', () => {
       if (!document.fullscreenElement) {
@@ -152,14 +188,18 @@
     document.getElementById('auto').addEventListener('click', () => {
       controls.autoRotate = !controls.autoRotate;
       controls.autoRotateSpeed = 0.2;
+      const btn = document.getElementById('auto');
+      btn.setAttribute('data-active', controls.autoRotate ? 'true' : 'false');
     });
     document.getElementById('zoomIn').addEventListener('click', () => {
-      camera.fov = Math.max(30, camera.fov - 5);
-      camera.updateProjectionMatrix();
+      fovTarget = Math.max(fovMin, fovTarget - 5);
     });
     document.getElementById('zoomOut').addEventListener('click', () => {
-      camera.fov = Math.min(100, camera.fov + 5);
-      camera.updateProjectionMatrix();
+      fovTarget = Math.min(fovMax, fovTarget + 5);
+    });
+    document.addEventListener('fullscreenchange', () => {
+      const fsBtn = document.getElementById('fs');
+      fsBtn.setAttribute('data-active', document.fullscreenElement ? 'true' : 'false');
     });
   </script>
 </body>
