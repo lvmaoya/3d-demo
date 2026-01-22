@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>全景展示 Demo</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    #toolbar {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+      background: rgba(20,20,20,0.6);
+      backdrop-filter: blur(6px);
+      border-radius: 10px;
+      padding: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    #toolbar button {
+      color: #fff;
+      background: #2b2b2b;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    #toolbar button:hover {
+      background: #3a3a3a;
+    }
+    #toolbar .label {
+      color: #ddd;
+      padding: 8px 6px;
+      user-select: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div class="label">全景切换:</div>
+    <button id="btn1">全景 1</button>
+    <button id="btn2">全景 2</button>
+    <button id="fs">全屏</button>
+    <button id="auto">自动旋转</button>
+    <button id="zoomIn">放大</button>
+    <button id="zoomOut">缩小</button>
+  </div>
+  <div id="overlay" style="position:fixed;top:12px;right:12px;z-index:10;background:rgba(20,20,20,0.6);backdrop-filter:blur(6px);border-radius:10px;padding:8px 12px;border:1px solid rgba(255,255,255,0.12);color:#ddd;">拖拽旋转，滚轮缩放</div>
+  <div id="loading" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,0.5);padding:12px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);">图片加载中…</div>
+  <canvas id="c"></canvas>
+  <script type="module">
+    import * as THREE from 'https://esm.sh/three@0.159.0';
+    import { OrbitControls } from 'https://esm.sh/three@0.159.0/examples/jsm/controls/OrbitControls.js';
+
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    camera.position.set(0, 0, 0.1);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = true;
+    controls.enablePan = false;
+    controls.rotateSpeed = 0.3;
+    controls.zoomSpeed = 0.5;
+    controls.enableDamping = true;
+
+    const geometry = new THREE.SphereGeometry(1, 64, 64);
+    const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    const textures = {
+      pano1: 'assets/665b0d2b94140fb66eb0c1bfba5f440a.jpg',
+      pano2: 'assets/f30c6dd6e06bb8be870b6ed7ccd96afc.jpg'
+    };
+
+    const loader = new THREE.TextureLoader();
+    let t1, t2;
+
+    function setupTexture(t) {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.generateMipmaps = false;
+      t.wrapS = THREE.ClampToEdgeWrapping;
+      t.wrapT = THREE.ClampToEdgeWrapping;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    }
+
+    function applyTexture(t) {
+      material.map = t;
+      material.needsUpdate = true;
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    t1 = loader.load(textures.pano1, () => { setupTexture(t1); applyTexture(t1); renderOnce(); }, () => {}, () => {});
+    t2 = loader.load(textures.pano2, () => { setupTexture(t2); }, () => {}, () => {});
+
+    function renderOnce() {
+      renderer.render(scene, camera);
+    }
+
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    document.getElementById('btn1').addEventListener('click', () => {
+      if (t1) applyTexture(t1);
+    });
+    document.getElementById('btn2').addEventListener('click', () => {
+      if (t2) applyTexture(t2);
+    });
+    document.getElementById('fs').addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.body.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    });
+    document.getElementById('auto').addEventListener('click', () => {
+      controls.autoRotate = !controls.autoRotate;
+      controls.autoRotateSpeed = 0.2;
+    });
+    document.getElementById('zoomIn').addEventListener('click', () => {
+      camera.fov = Math.max(30, camera.fov - 5);
+      camera.updateProjectionMatrix();
+    });
+    document.getElementById('zoomOut').addEventListener('click', () => {
+      camera.fov = Math.min(100, camera.fov + 5);
+      camera.updateProjectionMatrix();
+    });
+  </script>
+</body>
+</html>
