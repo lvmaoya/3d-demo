@@ -118,8 +118,10 @@
       t.minFilter = THREE.LinearFilter;
       t.magFilter = THREE.LinearFilter;
       t.generateMipmaps = false;
-      t.wrapS = THREE.ClampToEdgeWrapping;
+      t.wrapS = THREE.RepeatWrapping;
       t.wrapT = THREE.ClampToEdgeWrapping;
+      t.repeat.x = -1;
+      t.offset.x = 1;
       t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     }
 
