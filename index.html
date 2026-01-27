@@ -13,52 +13,34 @@
       background: #000;
       font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
     }
-    #toolbar {
+    #thumbs {
       position: fixed;
-      bottom: 20px;
+      bottom: 16px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
       gap: 10px;
-      align-items: center;
       z-index: 10;
-      background: transparent;
-      padding: 0;
-      border: none;
-    }
-    #toolbar button {
-      color: #1f2937;
-      background: linear-gradient(180deg, #ffffff, #f7f7f7);
-      border: 1px solid rgba(0,0,0,0.12);
+      background: rgba(0,0,0,0.25);
+      padding: 8px 10px;
       border-radius: 12px;
-      padding: 10px 16px;
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(6px);
+      max-width: calc(100vw - 40px);
+      overflow-x: auto;
+    }
+    #thumbs img {
+      width: 96px;
+      height: 56px;
+      object-fit: cover;
+      border-radius: 8px;
       cursor: pointer;
-      outline: none;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.15), inset 0 1px rgba(255,255,255,0.70);
-      transition: background .15s ease, transform .1s ease, box-shadow .15s ease, border-color .15s ease;
+      border: 1px solid rgba(255,255,255,0.25);
+      opacity: 0.85;
+      transition: transform .12s ease, opacity .12s ease, box-shadow .12s ease;
     }
-    #toolbar button:hover {
-      background: linear-gradient(180deg, #f9fafb, #f0f0f0);
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px rgba(0,0,0,0.20), inset 0 1px rgba(255,255,255,0.80);
-    }
-    #toolbar button:active {
-      transform: translateY(0);
-      background: linear-gradient(180deg, #efefef, #e7e7e7);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px rgba(255,255,255,0.70);
-    }
-    #toolbar button:focus-visible {
-      box-shadow: 0 0 0 2px rgba(2,132,199,0.35), 0 8px 22px rgba(0,0,0,0.20);
-    }
-    #toolbar button[data-active="true"] {
-      color: #0b6baf;
-      background: linear-gradient(180deg, #e0f2fe, #bae6fd);
-      border-color: rgba(2,132,199,0.45);
-      box-shadow: 0 8px 24px rgba(2,132,199,0.25), inset 0 1px rgba(255,255,255,0.85);
-    }
-    #toolbar .label {
-      display: none;
-    }
+    #thumbs img:hover { opacity: 1; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
+    #thumbs img.active { opacity: 1; border-color: rgba(2,132,199,0.8); box-shadow: 0 0 0 2px rgba(2,132,199,0.45); }
     canvas {
       display: block;
       width: 100vw;
@@ -67,14 +49,7 @@
   </style>
 </head>
 <body>
-  <div id="toolbar">
-    <button id="btn1" data-group="pano" data-active="false">全景 1</button>
-    <button id="btn2" data-group="pano" data-active="false">全景 2</button>
-    <button id="fs" data-toggle>全屏</button>
-    <button id="auto" data-toggle>自动旋转</button>
-    <button id="zoomIn">放大</button>
-    <button id="zoomOut">缩小</button>
-  </div>
+  <div id="thumbs"></div>
   <div id="loading" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;background:rgba(0,0,0,0.5);padding:12px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);">图片加载中…</div>
   <canvas id="c"></canvas>
   <script type="module">
@@ -103,21 +78,25 @@
 
     // 全景球体，贴图显示在球体内侧
     const geometry = new THREE.SphereGeometry(1, 64, 64);
-    const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
+    const material = new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
+    const material2 = new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 0 });
+    const mesh2 = new THREE.Mesh(geometry, material2);
+    scene.add(mesh2);
 
     // 全景贴图路径
-    const textures = {
-      //pano1: 'assets/665b0d2b94140fb66eb0c1bfba5f440a.jpg',
-      //pano2: 'assets/f30c6dd6e06bb8be870b6ed7ccd96afc.jpg'
-      pano1: 'assets/a98b0e5cee1b778588ae6b48e5643b72.jpg',
-      pano2: 'assets/beea51b1dbe12ccd4f47349bc4489e1a.jpg'
-    };
+    const textures = [
+      { id: 'pano1', src: 'assets/97b16f01995764d14ac91aa435604bec.jpg' },
+      { id: 'pano2', src: 'assets/a98b0e5cee1b778588ae6b48e5643b72.jpg' },
+      { id: 'pano3', src: 'assets/beea51b1dbe12ccd4f47349bc4489e1a.jpg' }
+    ];
 
     // 纹理加载器与缓存引用
     const loader = new THREE.TextureLoader();
-    let t1, t2;
+    const texCache = new Map();
+    let currentId = null;
+    let transition = null;
 
     // 统一配置纹理参数
     function setupTexture(t) {
@@ -132,24 +111,35 @@
       t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     }
 
-    // 将纹理应用到球体材质
-    function applyTexture(t) {
+    function applyTextureImmediate(t) {
       material.map = t;
+      material.opacity = 1;
       material.needsUpdate = true;
+      material2.opacity = 0;
+      material2.map = null;
       document.getElementById('loading').style.display = 'none';
     }
-    // 更新底部按钮激活状态
-    function setActiveBtn(id) {
-      document.querySelectorAll('#toolbar button[data-group="pano"]').forEach(b => b.setAttribute('data-active', 'false'));
-      const btn = document.getElementById(id);
-      if (btn) btn.setAttribute('data-active', 'true');
+    function crossfadeTo(t) {
+      material2.map = t;
+      material2.opacity = 0;
+      material2.needsUpdate = true;
+      transition = { start: performance.now(), duration: 900, target: t };
     }
 
-    // 预加载两张全景图
-    t1 = loader.load(textures.pano1, () => { setupTexture(t1); applyTexture(t1); renderOnce(); }, () => {}, () => {});
-    t2 = loader.load(textures.pano2, () => { setupTexture(t2); }, () => {}, () => {});
+    function loadTextureById(id, cb) {
+      const info = textures.find(x => x.id === id);
+      if (!info) return;
+      if (texCache.has(id)) {
+        cb && cb(texCache.get(id));
+        return;
+      }
+      const t = loader.load(info.src, () => {
+        setupTexture(t);
+        texCache.set(id, t);
+        cb && cb(t);
+      });
+    }
 
-    // 单次渲染，用于首帧显示
     function renderOnce() {
       renderer.render(scene, camera);
     }
@@ -163,6 +153,34 @@
       fovTarget = THREE.MathUtils.clamp(fovTarget + delta * 0.05, fovMin, fovMax);
     }, { passive: false });
 
+    function buildThumbs() {
+      const wrap = document.getElementById('thumbs');
+      wrap.innerHTML = '';
+      textures.forEach((x, i) => {
+        const img = document.createElement('img');
+        img.src = x.src;
+        img.alt = x.id;
+        img.dataset.id = x.id;
+        img.addEventListener('click', () => {
+          document.querySelectorAll('#thumbs img').forEach(el => el.classList.remove('active'));
+          img.classList.add('active');
+          document.getElementById('loading').style.display = '';
+          loadTextureById(x.id, (tex) => {
+            if (currentId === null) {
+              applyTextureImmediate(tex);
+            } else {
+              crossfadeTo(tex);
+            }
+            currentId = x.id;
+          });
+        });
+        if (i === 0) img.classList.add('active');
+        wrap.appendChild(img);
+      });
+    }
+    buildThumbs();
+    loadTextureById(textures[0].id, (tex) => { applyTextureImmediate(tex); currentId = textures[0].id; renderOnce(); });
+
     // 自适应窗口尺寸
     function resize() {
       const w = window.innerWidth;
@@ -175,7 +193,6 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // 主渲染循环
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
@@ -184,41 +201,22 @@
         camera.fov = THREE.MathUtils.clamp(camera.fov, fovMin, fovMax);
         camera.updateProjectionMatrix();
       }
+      if (transition) {
+        const p = Math.min(1, (performance.now() - transition.start) / transition.duration);
+        material.opacity = 1 - p;
+        material2.opacity = p;
+        if (p === 1) {
+          material.map = transition.target;
+          material.opacity = 1;
+          material2.opacity = 0;
+          material2.map = null;
+          transition = null;
+          document.getElementById('loading').style.display = 'none';
+        }
+      }
       renderer.render(scene, camera);
     }
     animate();
-
-    document.getElementById('btn1').addEventListener('click', () => {
-      if (t1) applyTexture(t1);
-      setActiveBtn('btn1');
-    });
-    document.getElementById('btn2').addEventListener('click', () => {
-      if (t2) applyTexture(t2);
-      setActiveBtn('btn2');
-    });
-    document.getElementById('fs').addEventListener('click', () => {
-      if (!document.fullscreenElement) {
-        document.body.requestFullscreen();
-      } else {
-        document.exitFullscreen();
-      }
-    });
-    document.getElementById('auto').addEventListener('click', () => {
-      controls.autoRotate = !controls.autoRotate;
-      controls.autoRotateSpeed = 0.2;
-      const btn = document.getElementById('auto');
-      btn.setAttribute('data-active', controls.autoRotate ? 'true' : 'false');
-    });
-    document.getElementById('zoomIn').addEventListener('click', () => {
-      fovTarget = Math.max(fovMin, fovTarget - 5);
-    });
-    document.getElementById('zoomOut').addEventListener('click', () => {
-      fovTarget = Math.min(fovMax, fovTarget + 5);
-    });
-    document.addEventListener('fullscreenchange', () => {
-      const fsBtn = document.getElementById('fs');
-      fsBtn.setAttribute('data-active', document.fullscreenElement ? 'true' : 'false');
-    });
   </script>
 </body>
 </html>
