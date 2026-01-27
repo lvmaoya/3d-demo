@@ -64,6 +64,7 @@
 
     // 场景与相机
     const scene = new THREE.Scene();
+    // 视角，范围一般45-90，值越大视野越广、画布宽高比，匹配窗口避免拉伸、近裁剪面：距离相机小于此值的对象不渲染、远裁剪面：距离相机大于此值的对象不渲染
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     camera.position.set(0, 0, 0.1);
 
@@ -119,11 +120,12 @@
       material2.map = null;
       document.getElementById('loading').style.display = 'none';
     }
+    
     function crossfadeTo(t) {
       material2.map = t;
       material2.opacity = 0;
       material2.needsUpdate = true;
-      transition = { start: performance.now(), duration: 900, target: t };
+      transition = { start: performance.now(), duration: 300, target: t };
     }
 
     function loadTextureById(id, cb) {
