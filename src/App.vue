@@ -41,13 +41,12 @@ onMounted(() => {
   const { scene, camera } = createSceneCamera();
   // 创建控制器：负责旋转与阻尼
   const controls = createControls(camera, renderer.domElement);
-  // 全景管理器：贴图加载、缓存、切换与淡入淡出
+  // 全景管理器：贴图加载、缓存与切换
   const panoManager = createPanoManager({
     renderer,
     scene,
     panoList: PANO_LIST,
-    loadingEl: loadingEl.value,
-    transitionDuration: 300
+    loadingEl: loadingEl.value
   });
   // 缩放控制器：通过 FOV 插值实现平滑缩放
   const zoomController = createZoomController(camera, renderer.domElement, {
@@ -61,7 +60,7 @@ onMounted(() => {
   panoManager.showById(firstPanoId, true);
   // 注册自适应与渲染循环
   cleanups.push(setupResize(renderer, camera));
-  cleanups.push(startLoop({ renderer, scene, camera, controls, zoomController, panoManager }));
+  cleanups.push(startLoop({ renderer, scene, camera, controls, zoomController }));
   // 渲染器资源回收
   cleanups.push(() => renderer.dispose());
 });
@@ -111,24 +110,19 @@ function createControls(camera, domElement) {
 
 // 全景管理器
 // - 管理球体、材质、纹理加载与缓存
-// - 支持两套材质交叉淡出，实现平滑切换
-function createPanoManager({ renderer, scene, panoList, loadingEl, transitionDuration }) {
+// - 直接切换贴图
+function createPanoManager({ renderer, scene, panoList, loadingEl }) {
   // 球体几何：从内部观看，所以使用 BackSide
   const sphereGeo = new THREE.SphereGeometry(1, 64, 64);
   // 基础材质：当前显示的全景
   const baseMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 1 });
   const baseMesh = new THREE.Mesh(sphereGeo, baseMat);
   scene.add(baseMesh);
-  // 过渡材质：用于淡入淡出叠加
-  const nextMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, transparent: true, opacity: 0 });
-  const nextMesh = new THREE.Mesh(sphereGeo, nextMat);
-  scene.add(nextMesh);
 
   // 纹理加载器与缓存
   const textureLoader = new THREE.TextureLoader();
   const textureCache = new Map();
   let currentId = null;
-  let transitionState = null;
 
   // 统一设置纹理参数
   // - RepeatWrapping + repeat.x = -1 完成水平翻转，纠正镜像
@@ -151,17 +145,7 @@ function createPanoManager({ renderer, scene, panoList, loadingEl, transitionDur
     baseMat.map = t;
     baseMat.opacity = 1;
     baseMat.needsUpdate = true;
-    nextMat.opacity = 0;
-    nextMat.map = null;
     loadingEl.style.display = 'none';
-  }
-
-  // 交叉淡入淡出：下一张图渐入、当前图渐出
-  function crossfadeTo(t, nextId) {
-    nextMat.map = t;
-    nextMat.opacity = 0;
-    nextMat.needsUpdate = true;
-    transitionState = { start: performance.now(), duration: transitionDuration, target: t, nextId };
   }
 
   // 按 id 加载纹理
@@ -185,39 +169,15 @@ function createPanoManager({ renderer, scene, panoList, loadingEl, transitionDur
   // - immediate 为 true 时跳过过渡
   function showById(id, immediate = false) {
     if (!id) return;
-    if (id === currentId && !transitionState) return;
+    if (id === currentId) return;
     loadingEl.style.display = '';
     loadTextureById(id, (tex) => {
-      if (immediate || currentId === null) {
-        applyTextureImmediate(tex);
-        currentId = id;
-        return;
-      }
-      crossfadeTo(tex, id);
+      applyTextureImmediate(tex);
+      currentId = id;
     });
   }
 
-  // 每帧更新过渡状态
-  // - p 为 0~1 的进度
-  // - p==1 时完成切换并清理过渡材质
-  function updateTransition() {
-    if (!transitionState) return;
-    const p = Math.min(1, (performance.now() - transitionState.start) / transitionState.duration);
-    baseMat.opacity = 1 - p;
-    nextMat.opacity = p;
-    if (p === 1) {
-      const nextId = transitionState.nextId;
-      baseMat.map = transitionState.target;
-      baseMat.opacity = 1;
-      nextMat.opacity = 0;
-      nextMat.map = null;
-      transitionState = null;
-      currentId = nextId;
-      loadingEl.style.display = 'none';
-    }
-  }
-
-  return { showById, updateTransition };
+  return { showById };
 }
 
 // 创建缩放控制器：使用滚轮修改相机 FOV
@@ -292,14 +252,12 @@ function setupResize(renderer, camera) {
 // 主循环
 // - controls.update 处理阻尼与旋转
 // - zoomController.update 平滑缩放
-// - panoManager.updateTransition 推进贴图过渡
-function startLoop({ renderer, scene, camera, controls, zoomController, panoManager }) {
+function startLoop({ renderer, scene, camera, controls, zoomController }) {
   let rafId = 0;
   const animate = () => {
     rafId = requestAnimationFrame(animate);
     controls.update();
     zoomController.update();
-    panoManager.updateTransition();
     renderer.render(scene, camera);
   };
   animate();
