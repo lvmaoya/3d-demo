@@ -3,7 +3,7 @@
     <!-- 缩略图容器：由 buildThumbs 动态插入缩略图按钮 -->
     <div id="thumbs" ref="thumbsEl"></div>
     <!-- 加载提示层：贴图加载或切换时显示 -->
-    <div id="loading" ref="loadingEl">图片加载中…</div>
+    <div id="loading" ref="loadingEl">loading...</div>
     <!-- WebGL 画布：Three.js 渲染输出目标 -->
     <canvas id="c" ref="canvasEl"></canvas>
   </div>
@@ -332,11 +332,12 @@ function startLoop({ renderer, scene, camera, controls, zoomController }) {
   top: 50%;
   transform: translate(-50%, -50%);
   color: #fff;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 12px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
   z-index: 9;
+  font-size: 0.875rem;
 }
 
 /* 画布铺满视口 */
