@@ -17,14 +17,15 @@ import * as THREE from 'three';
 // 轨道控制器：实现拖拽旋转视角
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-// 全景贴图列表
-// - id：用于缩略图高亮与状态记录
-// - src：通过 import.meta.url 生成资源 URL，适配 Vite 打包
-const PANO_LIST = [
-  { id: 'pano1', src: new URL('../assets/97b16f01995764d14ac91aa435604bec.jpg', import.meta.url).href },
-  { id: 'pano2', src: new URL('../assets/a98b0e5cee1b778588ae6b48e5643b72.jpg', import.meta.url).href },
-  { id: 'pano3', src: new URL('../assets/beea51b1dbe12ccd4f47349bc4489e1a.jpg', import.meta.url).href }
-];
+// 全景贴图列表（自动从 assets 目录收集）
+const modules = import.meta.glob('../assets/*.{jpg,jpeg,png,webp}', { eager: true, import: 'default' });
+const PANO_LIST = Object.entries(modules)
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([path, url], idx) => {
+    const name = (path.split('/').pop() || `pano${idx + 1}`);
+    const id = name.replace(/\.[^/.]+$/, '');
+    return { id, src: url };
+  });
 
 // DOM 引用：用于获取画布、缩略图容器、加载提示层
 const canvasEl = ref(null);
@@ -315,14 +316,14 @@ function startLoop({ renderer, scene, camera, controls, zoomController }) {
 #thumbs img:hover {
   opacity: 1;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  /* box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); */
 }
 
 /* 激活态：高亮当前选中 */
 #thumbs img.active {
   opacity: 1;
   border-color: rgba(2, 132, 199, 0.8);
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.45);
+  /* box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.45); */
 }
 
 /* 加载提示层：居中覆盖 */
