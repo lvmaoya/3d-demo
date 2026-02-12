@@ -1,10 +1,16 @@
 <template>
   <div class="app">
-    <!-- 缩略图容器：由 buildThumbs 动态插入缩略图按钮 -->
-    <div id="thumbs" ref="thumbsEl"></div>
-    <!-- 加载提示层：贴图加载或切换时显示 -->
-    <div id="loading" ref="loadingEl">loading...</div>
-    <!-- WebGL 画布：Three.js 渲染输出目标 -->
+    <div id="thumbs">
+      <img
+        v-for="item in PANO_LIST"
+        :key="item.id"
+        :src="item.src"
+        :alt="item.id"
+        :class="{ active: item.id === selectedId }"
+        @click="handleSelect(item.id)"
+      />
+    </div>
+    <div id="loading" v-show="isLoading">loading...</div>
     <canvas id="c" ref="canvasEl"></canvas>
   </div>
 </template>
@@ -29,8 +35,9 @@ const PANO_LIST = Object.entries(modules)
 
 // DOM 引用：用于获取画布、缩略图容器、加载提示层
 const canvasEl = ref(null);
-const thumbsEl = ref(null);
-const loadingEl = ref(null);
+const isLoading = ref(true);
+const selectedId = ref('');
+let panoManager = null;
 
 // 统一回收函数集合：在组件卸载时清理监听与动画
 let cleanups = [];
@@ -43,11 +50,13 @@ onMounted(() => {
   // 创建控制器：负责旋转与阻尼
   const controls = createControls(camera, renderer.domElement);
   // 全景管理器：贴图加载、缓存与切换
-  const panoManager = createPanoManager({
+  panoManager = createPanoManager({
     renderer,
     scene,
     panoList: PANO_LIST,
-    loadingEl: loadingEl.value
+    setLoading: (value) => {
+      isLoading.value = value;
+    }
   });
   // 缩放控制器：通过 FOV 插值实现平滑缩放
   const zoomController = createZoomController(camera, renderer.domElement, {
@@ -56,9 +65,12 @@ onMounted(() => {
     ease: 0.15
   });
   // 构建缩略图并返回首个 id
-  const firstPanoId = buildThumbs(thumbsEl.value, PANO_LIST, (id) => panoManager.showById(id));
-  // 首屏直接加载第一张，避免进入时空白
-  panoManager.showById(firstPanoId, true);
+  const firstPanoId = PANO_LIST[0]?.id;
+  if (firstPanoId) {
+    selectedId.value = firstPanoId;
+    panoManager.showById(firstPanoId, true);
+    panoManager.preloadAll([firstPanoId]);
+  }
   // 注册自适应与渲染循环
   cleanups.push(setupResize(renderer, camera));
   cleanups.push(startLoop({ renderer, scene, camera, controls, zoomController }));
@@ -112,7 +124,7 @@ function createControls(camera, domElement) {
 // 全景管理器
 // - 管理球体、材质、纹理加载与缓存
 // - 直接切换贴图
-function createPanoManager({ renderer, scene, panoList, loadingEl }) {
+function createPanoManager({ renderer, scene, panoList, setLoading }) {
   // 球体几何：从内部观看，所以使用 BackSide
   const sphereGeo = new THREE.SphereGeometry(1, 64, 64);
   // 基础材质：当前显示的全景
@@ -124,6 +136,13 @@ function createPanoManager({ renderer, scene, panoList, loadingEl }) {
   const textureLoader = new THREE.TextureLoader();
   const textureCache = new Map();
   let currentId = null;
+  const schedule = (fn) => {
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(fn);
+    } else {
+      setTimeout(fn, 16);
+    }
+  };
 
   // 统一设置纹理参数
   // - RepeatWrapping + repeat.x = -1 完成水平翻转，纠正镜像
@@ -146,7 +165,7 @@ function createPanoManager({ renderer, scene, panoList, loadingEl }) {
     baseMat.map = t;
     baseMat.opacity = 1;
     baseMat.needsUpdate = true;
-    loadingEl.style.display = 'none';
+    setLoading(false);
   }
 
   // 按 id 加载纹理
@@ -171,14 +190,30 @@ function createPanoManager({ renderer, scene, panoList, loadingEl }) {
   function showById(id, immediate = false) {
     if (!id) return;
     if (id === currentId) return;
-    loadingEl.style.display = '';
+    setLoading(true);
     loadTextureById(id, (tex) => {
       applyTextureImmediate(tex);
       currentId = id;
     });
   }
 
-  return { showById };
+  function preloadAll(excludeIds = []) {
+    const excludeSet = new Set(excludeIds);
+    const ids = panoList.map(x => x.id).filter(id => !excludeSet.has(id));
+    let index = 0;
+    const loadNext = () => {
+      if (index >= ids.length) return;
+      const id = ids[index++];
+      if (textureCache.has(id)) {
+        schedule(loadNext);
+        return;
+      }
+      loadTextureById(id, () => schedule(loadNext));
+    };
+    schedule(loadNext);
+  }
+
+  return { showById, preloadAll };
 }
 
 // 创建缩放控制器：使用滚轮修改相机 FOV
@@ -210,29 +245,10 @@ function createZoomController(camera, domElement, { min, max, ease }) {
   };
 }
 
-// 构建缩略图列表
-// - onSelect: 点击回调，传出对应 id
-// - 返回首个 id 用于首屏显示
-function buildThumbs(container, panoList, onSelect) {
-  container.innerHTML = '';
-  let firstId = null;
-  panoList.forEach((x, i) => {
-    const img = document.createElement('img');
-    img.src = x.src;
-    img.alt = x.id;
-    img.dataset.id = x.id;
-    img.addEventListener('click', () => {
-      container.querySelectorAll('img').forEach(el => el.classList.remove('active'));
-      img.classList.add('active');
-      onSelect(x.id);
-    });
-    if (i === 0) {
-      img.classList.add('active');
-      firstId = x.id;
-    }
-    container.appendChild(img);
-  });
-  return firstId;
+function handleSelect(id) {
+  if (!id || id === selectedId.value) return;
+  selectedId.value = id;
+  panoManager.showById(id);
 }
 
 // 自适应窗口尺寸
