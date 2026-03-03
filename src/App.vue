@@ -3,6 +3,7 @@
     <div class="nav">
       <RouterLink to="/pano" class="nav-link" :class="{ active: route.path === '/pano' }">全景</RouterLink>
       <RouterLink to="/lantern" class="nav-link" :class="{ active: route.path === '/lantern' }">灯笼</RouterLink>
+      <RouterLink to="/model" class="nav-link" :class="{ active: route.path === '/model' }">模型</RouterLink>
     </div>
     <RouterView />
   </div>
